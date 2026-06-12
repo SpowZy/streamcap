@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "streamcap"
+version = "0.1.0"
+description = "Local-first real-time captions for anything your computer plays, with cost-aware cloud fallback and a latency/WER/cost benchmark harness."
+authors = [{ name = "SpowZy", email = "elmounabih.youssef@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "faster-whisper>=1.1",
+    "pyaudiowpatch>=0.2.12",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12>=9",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["streamcap"]
