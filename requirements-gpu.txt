@@ -1,0 +1,3 @@
+# CUDA 12 runtime libraries for ctranslate2 GPU inference (Windows/Linux, no system CUDA install needed)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9
