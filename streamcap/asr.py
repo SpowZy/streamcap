@@ -50,16 +50,27 @@ class StreamingTranscriber:
         model_size: str = "small",
         device: str = "auto",
         language: str | None = None,
-        window_seconds: float = 12.0,
-        step_seconds: float = 0.7,
+        window_seconds: float = 8.0,
+        step_seconds: float = 0.6,
         min_first_seconds: float = 1.0,
+        vad_filter: bool = False,
     ):
+        # vad_filter costs ~110 ms per call (measured, 8 s window on GPU) and the
+        # RMS silence gate + hypothesis agreement already suppress most
+        # silence hallucinations, so it stays off by default.
+        self.vad_filter = vad_filter
         self.language = language
         self.window_seconds = window_seconds
         self.step_seconds = step_seconds
         self.min_first_seconds = min_first_seconds
         self.stats = SessionStats()
+        # Whisper's per-window language detection flaps on short buffers, which
+        # destabilizes hypotheses and stalls agreement. Lock the language once
+        # detected with confidence; a long silence unlocks it so the session
+        # can follow a switch to different-language content.
+        self._locked_language: str | None = language
         self.detected_language: str | None = language
+        self.pending_text: str = ""
 
         self.device, self.compute_type, self._model = self._load_model(model_size, device)
 
@@ -68,6 +79,7 @@ class StreamingTranscriber:
         self._committed_end = 0.0  # seconds into buffer already final
         self._pending: list[Hyp] = []  # last hypothesis tail, not yet agreed
         self._new_audio = 0.0  # seconds accumulated since last step
+        self._last_commit: Hyp | None = None  # guards against boundary re-emission
 
     @staticmethod
     def _load_model(model_size: str, device: str):
@@ -95,6 +107,8 @@ class StreamingTranscriber:
         raise RuntimeError(f"could not load whisper model on any backend: {last_error}")
 
     def feed(self, block: AudioBlock) -> list[Commit]:
+        if self.stats.audio_seconds == 0.0:
+            self.stats.started_at = time.monotonic()  # exclude model load time
         if self._buffer_start is None:
             self._buffer_start = block.captured_at
         self._buffer = np.concatenate([self._buffer, block.samples])
@@ -123,16 +137,19 @@ class StreamingTranscriber:
         self._buffer = np.zeros(0, dtype=np.float32)
         self._committed_end = 0.0
         self._pending = []
+        self.pending_text = ""
+        if self.language is None:
+            self._locked_language = None  # allow a language switch after silence
 
     def _transcribe(self) -> list[Hyp]:
         t0 = time.monotonic()
         segments, info = self._model.transcribe(
             self._buffer,
-            language=self.language,
+            language=self._locked_language,
             beam_size=1,
             word_timestamps=True,
             condition_on_previous_text=False,
-            vad_filter=True,
+            vad_filter=self.vad_filter,
         )
         words: list[Hyp] = []
         for seg in segments:
@@ -140,12 +157,23 @@ class StreamingTranscriber:
                 words.append(Hyp(raw=w.word, norm=_norm(w.word), end=w.end))
         self.stats.transcribe_calls += 1
         self.stats.transcribe_seconds += time.monotonic() - t0
-        if self.language is None and info.language_probability and info.language_probability > 0.5:
-            self.detected_language = info.language
+        if self._locked_language is None and info.language_probability and info.language_probability > 0.8:
+            self._locked_language = info.language
+        self.detected_language = self._locked_language or info.language
         return words
 
     def _step(self) -> list[Commit]:
         current = [w for w in self._transcribe() if w.end > self._committed_end + 0.05]
+
+        # Word timings shift slightly between decodes; if the last committed
+        # word reappears just past the committed boundary, drop the duplicate.
+        while (
+            current
+            and self._last_commit is not None
+            and current[0].norm == self._last_commit.norm
+            and current[0].end <= self._committed_end + 0.4
+        ):
+            current.pop(0)
 
         # LocalAgreement: commit the prefix both consecutive hypotheses agree on.
         agreed = 0
@@ -159,11 +187,17 @@ class StreamingTranscriber:
             committed = current[:agreed]
             text = "".join(w.raw for w in committed).strip()
             self._committed_end = committed[-1].end
+            self._last_commit = committed[-1]
             latency = time.monotonic() - (self._buffer_start + self._committed_end)
             self.stats.add_commit(latency, n_words=agreed)
             commits.append(Commit(text=text, latency=latency, language=self.detected_language))
 
         self._pending = current[agreed:]
+        self.pending_text = "".join(w.raw for w in self._pending).strip()
+        if current:
+            # freshness of the newest word on screen (committed or pending)
+            display_latency = time.monotonic() - (self._buffer_start + current[-1].end)
+            self.stats.add_display(display_latency)
         self._trim()
         return commits
 
@@ -183,3 +217,9 @@ class StreamingTranscriber:
         self._pending = [
             Hyp(raw=w.raw, norm=w.norm, end=w.end - cut) for w in self._pending if w.end - cut > 0
         ]
+        if self._last_commit is not None:
+            self._last_commit = Hyp(
+                raw=self._last_commit.raw,
+                norm=self._last_commit.norm,
+                end=self._last_commit.end - cut,
+            )
