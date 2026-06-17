@@ -12,6 +12,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model", default="small", help="faster-whisper model size (tiny/base/small/medium/large-v3)")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     p.add_argument("--language", default=None, help="force a language code (default: auto-detect)")
+    p.add_argument("--duration", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     p.add_argument("--list-devices", action="store_true", help="list WASAPI loopback devices and exit")
     return p.parse_args()
 
@@ -40,8 +41,11 @@ def main() -> int:
     print("play anything — captions below. Ctrl+C to stop.\n")
     capture.start()
 
+    import time
+
+    deadline = time.monotonic() + args.duration if args.duration else None
     try:
-        while True:
+        while deadline is None or time.monotonic() < deadline:
             try:
                 block = capture.blocks.get(timeout=1.0)
             except queue.Empty:
