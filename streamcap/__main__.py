@@ -13,6 +13,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     p.add_argument("--language", default=None, help="force a language code (default: auto-detect)")
     p.add_argument("--duration", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
+    p.add_argument("--overlay", action="store_true", help="show the on-screen caption overlay instead of console output")
     p.add_argument("--list-devices", action="store_true", help="list WASAPI loopback devices and exit")
     return p.parse_args()
 
@@ -31,6 +32,11 @@ def main() -> int:
         for d in list_loopback_devices():
             print(f"[{d['index']:>3}] {d['name']}  ({int(d['defaultSampleRate'])} Hz, {d['maxInputChannels']} ch)")
         return 0
+
+    if args.overlay:
+        from .overlay import run_overlay
+
+        return run_overlay(args.model, args.device, args.language, args.duration)
 
     print(f"loading {args.model} ({args.device}) ...", flush=True)
     transcriber = StreamingTranscriber(model_size=args.model, device=args.device, language=args.language)
