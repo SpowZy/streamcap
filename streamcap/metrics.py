@@ -1,4 +1,10 @@
-"""Session metrics: end-to-end caption latency and throughput."""
+"""Session metrics: end-to-end caption latency, throughput and inference cost.
+
+The cost baseline is what this session would have cost if every captured
+second had been streamed to a cloud STT API — the architecture of a thin
+desktop client with no local model. Rate: Deepgram Nova-3 streaming,
+pay-as-you-go, $0.0077/min (verified July 2026).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,8 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
+
+CLOUD_RATE_PER_MIN = 0.0077  # USD, Deepgram Nova-3 streaming PAYG
 
 
 @dataclass
@@ -15,6 +23,7 @@ class SessionStats:
     display_latencies: list[float] = field(default_factory=list)
     words_committed: int = 0
     audio_seconds: float = 0.0
+    cloud_seconds: float = 0.0  # audio routed to a paid cloud API
     transcribe_calls: int = 0
     transcribe_seconds: float = 0.0
 
@@ -40,6 +49,43 @@ class SessionStats:
         if self.audio_seconds == 0:
             return None
         return self.transcribe_seconds / self.audio_seconds
+
+    @property
+    def local_pct(self) -> float:
+        if self.audio_seconds == 0:
+            return 100.0
+        return 100.0 * (1.0 - self.cloud_seconds / self.audio_seconds)
+
+    @property
+    def cloud_cost(self) -> float:
+        return self.cloud_seconds / 60.0 * CLOUD_RATE_PER_MIN
+
+    @property
+    def baseline_cost(self) -> float:
+        """Cost of this session on a stream-everything thin client."""
+        return self.audio_seconds / 60.0 * CLOUD_RATE_PER_MIN
+
+    @property
+    def saved(self) -> float:
+        return self.baseline_cost - self.cloud_cost
+
+    def snapshot(self) -> dict:
+        return {
+            "session_s": round(time.monotonic() - self.started_at, 1),
+            "audio_s": round(self.audio_seconds, 1),
+            "words": self.words_committed,
+            "commits": len(self.latencies),
+            "display_p50": self._pct(self.display_latencies, 50),
+            "display_p95": self._pct(self.display_latencies, 95),
+            "commit_p50": self._pct(self.latencies, 50),
+            "commit_p95": self._pct(self.latencies, 95),
+            "rtf": self.rtf,
+            "local_pct": round(self.local_pct, 1),
+            "cloud_cost": round(self.cloud_cost, 4),
+            "baseline_cost": round(self.baseline_cost, 4),
+            "saved": round(self.saved, 4),
+            "lat_series": [round(v, 3) for v in self.display_latencies[-150:]],
+        }
 
     def summary(self) -> str:
         dur = time.monotonic() - self.started_at

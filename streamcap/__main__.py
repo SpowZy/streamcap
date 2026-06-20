@@ -14,6 +14,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--language", default=None, help="force a language code (default: auto-detect)")
     p.add_argument("--duration", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     p.add_argument("--overlay", action="store_true", help="show the on-screen caption overlay instead of console output")
+    p.add_argument("--dashboard", action="store_true", help="serve the live metrics dashboard on http://127.0.0.1:8765")
     p.add_argument("--list-devices", action="store_true", help="list WASAPI loopback devices and exit")
     return p.parse_args()
 
@@ -36,11 +37,25 @@ def main() -> int:
     if args.overlay:
         from .overlay import run_overlay
 
-        return run_overlay(args.model, args.device, args.language, args.duration)
+        return run_overlay(args.model, args.device, args.language, args.duration, dashboard=args.dashboard)
 
     print(f"loading {args.model} ({args.device}) ...", flush=True)
     transcriber = StreamingTranscriber(model_size=args.model, device=args.device, language=args.language)
     print(f"model ready on {transcriber.device} ({transcriber.compute_type})")
+
+    if args.dashboard:
+        from .dashboard import start_dashboard
+
+        def provider() -> dict:
+            snap = transcriber.stats.snapshot()
+            snap.update(
+                model=args.model,
+                device=transcriber.device,
+                language=transcriber.detected_language or "auto",
+            )
+            return snap
+
+        print(f"dashboard: {start_dashboard(provider)}")
 
     capture = LoopbackCapture()
     print(f"capturing: {capture.device['name']}")

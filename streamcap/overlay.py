@@ -32,6 +32,7 @@ class CaptionWorker(QThread):
         self._device = device
         self._language = language
         self._running = True
+        self.transcriber = None  # set once the model is loaded (read by the dashboard)
 
     def run(self) -> None:
         from .asr import StreamingTranscriber
@@ -41,6 +42,7 @@ class CaptionWorker(QThread):
         transcriber = StreamingTranscriber(
             model_size=self._model, device=self._device, language=self._language
         )
+        self.transcriber = transcriber
         capture = LoopbackCapture()
         capture.start()
         self.status.emit(f"{transcriber.device} · listening")
@@ -166,12 +168,34 @@ class Overlay(QWidget):
         e.accept()
 
 
-def run_overlay(model: str, device: str, language: str | None, duration: float | None = None) -> int:
+def run_overlay(
+    model: str,
+    device: str,
+    language: str | None,
+    duration: float | None = None,
+    dashboard: bool = False,
+) -> int:
     import sys
 
     app = QApplication(sys.argv)
     overlay = Overlay(model, device, language)
     overlay.show()
+
+    if dashboard:
+        from .dashboard import start_dashboard
+        from .metrics import SessionStats
+
+        def provider() -> dict:
+            t = overlay._worker.transcriber
+            snap = (t.stats if t else SessionStats()).snapshot()
+            snap.update(
+                model=model,
+                device=t.device if t else "loading",
+                language=(t.detected_language if t else None) or "auto",
+            )
+            return snap
+
+        print(f"dashboard: {start_dashboard(provider)}", flush=True)
     if duration:
         from PySide6.QtCore import QTimer
 
