@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -80,6 +81,7 @@ class StreamingTranscriber:
         self._pending: list[Hyp] = []  # last hypothesis tail, not yet agreed
         self._new_audio = 0.0  # seconds accumulated since last step
         self._last_commit: Hyp | None = None  # guards against boundary re-emission
+        self._word_probs: deque[float] = deque(maxlen=80)  # router's quality signal
 
     @staticmethod
     def _load_model(model_size: str, device: str):
@@ -127,6 +129,16 @@ class StreamingTranscriber:
 
         return self._step()
 
+    @property
+    def rolling_confidence(self) -> float | None:
+        """Mean word probability over the recent window; None until warmed up."""
+        if len(self._word_probs) < 20:
+            return None
+        return float(np.mean(self._word_probs))
+
+    def reset_confidence(self) -> None:
+        self._word_probs.clear()
+
     def _is_silence(self) -> bool:
         return float(np.sqrt(np.mean(self._buffer**2))) < 3e-4
 
@@ -155,6 +167,8 @@ class StreamingTranscriber:
         for seg in segments:
             for w in seg.words or []:
                 words.append(Hyp(raw=w.word, norm=_norm(w.word), end=w.end))
+                if w.probability is not None:
+                    self._word_probs.append(w.probability)
         self.stats.transcribe_calls += 1
         self.stats.transcribe_seconds += time.monotonic() - t0
         if self._locked_language is None and info.language_probability and info.language_probability > 0.8:

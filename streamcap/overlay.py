@@ -26,15 +26,17 @@ class CaptionWorker(QThread):
     pending = Signal(str)
     status = Signal(str)
 
-    def __init__(self, model: str, device: str, language: str | None):
+    def __init__(self, model: str, device: str, language: str | None, route: str | None = None):
         super().__init__()
         self._model = model
         self._device = device
         self._language = language
+        self._route = route
         self._running = True
-        self.transcriber = None  # set once the model is loaded (read by the dashboard)
+        self.transcriber = None  # the engine, set once loaded (read by the dashboard)
 
     def run(self) -> None:
+        from .__main__ import build_engine
         from .asr import StreamingTranscriber
         from .audio import LoopbackCapture
 
@@ -42,6 +44,7 @@ class CaptionWorker(QThread):
         transcriber = StreamingTranscriber(
             model_size=self._model, device=self._device, language=self._language
         )
+        transcriber = build_engine(transcriber, self._route)
         self.transcriber = transcriber
         capture = LoopbackCapture()
         capture.start()
@@ -64,6 +67,8 @@ class CaptionWorker(QThread):
                 self.pending.emit(transcriber.pending_text)
         finally:
             capture.stop()
+            if hasattr(transcriber, "close"):
+                transcriber.close()
 
     def stop(self) -> None:
         self._running = False
@@ -71,7 +76,7 @@ class CaptionWorker(QThread):
 
 
 class Overlay(QWidget):
-    def __init__(self, model: str, device: str, language: str | None):
+    def __init__(self, model: str, device: str, language: str | None, route: str | None = None):
         super().__init__(
             None,
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool,
@@ -117,7 +122,7 @@ class Overlay(QWidget):
         self._committed = ""
         self._pending = ""
 
-        self._worker = CaptionWorker(model, device, language)
+        self._worker = CaptionWorker(model, device, language, route=route)
         self._worker.committed.connect(self._on_committed)
         self._worker.pending.connect(self._on_pending)
         self._worker.status.connect(self._chip.setText)
@@ -174,11 +179,12 @@ def run_overlay(
     language: str | None,
     duration: float | None = None,
     dashboard: bool = False,
+    route: str | None = None,
 ) -> int:
     import sys
 
     app = QApplication(sys.argv)
-    overlay = Overlay(model, device, language)
+    overlay = Overlay(model, device, language, route=route)
     overlay.show()
 
     if dashboard:
