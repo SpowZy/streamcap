@@ -38,6 +38,7 @@ def main() -> None:
     p.add_argument("--device", default="auto")
     p.add_argument("--language", default=None)
     p.add_argument("--speed", type=float, default=1.0, help="1.0 = real-time pacing")
+    p.add_argument("--route", default="local", choices=["local", "cloud", "auto"])
     args = p.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -50,7 +51,10 @@ def main() -> None:
     print(f"{args.wav}: {len(audio) / TARGET_RATE:.1f}s of audio")
 
     t = StreamingTranscriber(model_size=args.model, device=args.device, language=args.language)
-    print(f"model ready on {t.device} ({t.compute_type})\n")
+    from streamcap.__main__ import build_engine
+
+    t = build_engine(t, args.route)
+    print(f"model ready: {t.device}\n")
 
     block_len = int(TARGET_RATE * 0.25)
     start = time.monotonic()
@@ -65,7 +69,13 @@ def main() -> None:
             lang = f" [{commit.language}]" if commit.language else ""
             print(f"{commit.text}   ({commit.latency:.2f}s){lang}", flush=True)
 
+    if hasattr(t, "drain"):
+        for commit in t.drain():
+            print(f"{commit.text}   ({commit.latency:.2f}s) [drain]", flush=True)
+
     print("\n" + t.stats.summary())
+    s = t.stats
+    print(f"cloud audio {s.cloud_seconds:.1f}s | cloud spend ${s.cloud_cost:.4f} | saved ${s.saved:.4f}")
 
 
 if __name__ == "__main__":

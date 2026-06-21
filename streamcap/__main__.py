@@ -15,8 +15,26 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--duration", type=float, default=None, help="stop after N seconds (default: run until Ctrl+C)")
     p.add_argument("--overlay", action="store_true", help="show the on-screen caption overlay instead of console output")
     p.add_argument("--dashboard", action="store_true", help="serve the live metrics dashboard on http://127.0.0.1:8765")
+    p.add_argument("--route", default=None, choices=["local", "cloud", "auto"],
+                   help="inference routing (default: auto when a Deepgram key is configured, else local)")
     p.add_argument("--list-devices", action="store_true", help="list WASAPI loopback devices and exit")
     return p.parse_args()
+
+
+def build_engine(transcriber, route: str | None):
+    """Wrap the local transcriber in the hybrid router when a key is available."""
+    from .cloud import load_api_key
+
+    key = load_api_key()
+    mode = route or ("auto" if key else "local")
+    if mode != "local":
+        if not key:
+            print("no DEEPGRAM_API_KEY configured, falling back to local-only")
+            return transcriber
+        from .router import HybridRouter
+
+        return HybridRouter(transcriber, key, mode=mode)
+    return transcriber
 
 
 def main() -> int:
@@ -37,21 +55,25 @@ def main() -> int:
     if args.overlay:
         from .overlay import run_overlay
 
-        return run_overlay(args.model, args.device, args.language, args.duration, dashboard=args.dashboard)
+        return run_overlay(
+            args.model, args.device, args.language, args.duration,
+            dashboard=args.dashboard, route=args.route,
+        )
 
     print(f"loading {args.model} ({args.device}) ...", flush=True)
     transcriber = StreamingTranscriber(model_size=args.model, device=args.device, language=args.language)
-    print(f"model ready on {transcriber.device} ({transcriber.compute_type})")
+    engine = build_engine(transcriber, args.route)
+    print(f"model ready: {engine.device} ({transcriber.compute_type})")
 
     if args.dashboard:
         from .dashboard import start_dashboard
 
         def provider() -> dict:
-            snap = transcriber.stats.snapshot()
+            snap = engine.stats.snapshot()
             snap.update(
                 model=args.model,
-                device=transcriber.device,
-                language=transcriber.detected_language or "auto",
+                device=engine.device,
+                language=engine.detected_language or "auto",
             )
             return snap
 
@@ -71,14 +93,16 @@ def main() -> int:
                 block = capture.blocks.get(timeout=1.0)
             except queue.Empty:
                 continue
-            for commit in transcriber.feed(block):
+            for commit in engine.feed(block):
                 lang = f" [{commit.language}]" if commit.language else ""
                 print(f"{commit.text}   ({commit.latency:.2f}s){lang}", flush=True)
     except KeyboardInterrupt:
         pass
     finally:
         capture.stop()
-        print("\n" + transcriber.stats.summary())
+        if hasattr(engine, "close"):
+            engine.close()
+        print("\n" + engine.stats.summary())
     return 0
 
 
