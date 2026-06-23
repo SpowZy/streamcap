@@ -115,9 +115,7 @@ class HybridRouter:
             n_words = len(result.text.split())
             stats.add_commit(latency, n_words=n_words)
             stats.add_display(latency)
-            commits.append(
-                Commit(text=result.text, latency=latency, language=self.detected_language)
-            )
+            commits.append(self._to_commit(result, latency))
 
         if (
             self.mode == "auto"
@@ -144,6 +142,19 @@ class HybridRouter:
         self.active = "local"
         self.local.reset_confidence()
 
+    def _to_commit(self, result, latency: float) -> Commit:
+        """Map a cloud result's stream offsets onto the session clock."""
+        t0 = self.local.stats.started_at
+        wall_start = self._cloud._wall_time_at(result.start) if self._cloud else None
+        wall_end = self._cloud._wall_time_at(result.end) if self._cloud else None
+        return Commit(
+            text=result.text,
+            latency=latency,
+            language=self.detected_language,
+            start=max(0.0, (wall_start or t0) - t0),
+            end=max(0.0, (wall_end or t0) - t0),
+        )
+
     def drain(self, seconds: float = 3.0) -> list[Commit]:
         """Flush the cloud stream and collect its remaining final results."""
         commits: list[Commit] = []
@@ -154,9 +165,7 @@ class HybridRouter:
             for result in self._cloud.poll():
                 latency = self._cloud.latency_of(result) or 0.0
                 self.local.stats.add_commit(latency, n_words=len(result.text.split()))
-                commits.append(
-                    Commit(text=result.text, latency=latency, language=self.detected_language)
-                )
+                commits.append(self._to_commit(result, latency))
             time.sleep(0.2)
         self.close()
         return commits
