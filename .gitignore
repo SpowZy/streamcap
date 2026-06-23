@@ -8,6 +8,7 @@ venv/
 # Local dev artifacts (test audio, recordings, scratch output)
 local/
 out/
+sessions/
 *.wav
 *.mp3
 

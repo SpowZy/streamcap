@@ -37,6 +37,7 @@ def load_api_key() -> str | None:
 @dataclass
 class CloudResult:
     text: str
+    start: float  # seconds of *sent* audio at which this result starts
     end: float  # seconds of *sent* audio at which this result ends
     is_final: bool
 
@@ -143,11 +144,14 @@ class CloudStream:
                         continue
                     alt = data["channel"]["alternatives"][0]
                     text = alt.get("transcript", "")
-                    end = data.get("start", 0.0) + data.get("duration", 0.0)
+                    start = data.get("start", 0.0)
+                    end = start + data.get("duration", 0.0)
                     if data.get("is_final"):
                         self.interim_text = ""
                         if text:
-                            self._results.put(CloudResult(text=text, end=end, is_final=True))
+                            self._results.put(
+                                CloudResult(text=text, start=start, end=end, is_final=True)
+                            )
                     elif text:
                         self.interim_text = text
 

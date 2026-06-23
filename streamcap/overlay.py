@@ -51,6 +51,7 @@ class CaptionWorker(QThread):
         self.status.emit(f"{transcriber.device} · listening")
 
         text = ""
+        transcript: list[dict] = []
         try:
             while self._running:
                 try:
@@ -59,6 +60,9 @@ class CaptionWorker(QThread):
                     continue
                 for commit in transcriber.feed(block):
                     text = (text + " " + commit.text).strip()[-MAX_CHARS:]
+                    transcript.append(
+                        {"start": commit.start, "end": commit.end, "text": commit.text}
+                    )
                     self.committed.emit(text)
                     lang = commit.language or "…"
                     d50 = transcriber.stats._pct(transcriber.stats.display_latencies, 50)
@@ -67,8 +71,16 @@ class CaptionWorker(QThread):
                 self.pending.emit(transcriber.pending_text)
         finally:
             capture.stop()
-            if hasattr(transcriber, "close"):
+            if hasattr(transcriber, "drain"):
+                for commit in transcriber.drain():
+                    transcript.append(
+                        {"start": commit.start, "end": commit.end, "text": commit.text}
+                    )
+            elif hasattr(transcriber, "close"):
                 transcriber.close()
+            from .export import save_session
+
+            save_session(transcript)
 
     def stop(self) -> None:
         self._running = False
@@ -186,6 +198,20 @@ def run_overlay(
     app = QApplication(sys.argv)
     overlay = Overlay(model, device, language, route=route)
     overlay.show()
+
+    from .hotkeys import VK_F9, VK_F10, GlobalHotkeys
+
+    hotkeys = GlobalHotkeys()
+    app.installNativeEventFilter(hotkeys)
+    hotkeys.register(VK_F9, lambda: overlay.setVisible(not overlay.isVisible()))
+
+    def toggle_click_through() -> None:
+        on = not bool(overlay.windowFlags() & Qt.WindowTransparentForInput)
+        overlay.setWindowFlag(Qt.WindowTransparentForInput, on)
+        overlay.show()
+
+    hotkeys.register(VK_F10, toggle_click_through)
+    app.aboutToQuit.connect(hotkeys.unregister_all)
 
     if dashboard:
         from .dashboard import start_dashboard

@@ -86,6 +86,7 @@ def main() -> int:
 
     import time
 
+    transcript: list[dict] = []
     deadline = time.monotonic() + args.duration if args.duration else None
     try:
         while deadline is None or time.monotonic() < deadline:
@@ -96,13 +97,22 @@ def main() -> int:
             for commit in engine.feed(block):
                 lang = f" [{commit.language}]" if commit.language else ""
                 print(f"{commit.text}   ({commit.latency:.2f}s){lang}", flush=True)
+                transcript.append({"start": commit.start, "end": commit.end, "text": commit.text})
     except KeyboardInterrupt:
         pass
     finally:
         capture.stop()
-        if hasattr(engine, "close"):
+        if hasattr(engine, "drain"):
+            for commit in engine.drain():
+                transcript.append({"start": commit.start, "end": commit.end, "text": commit.text})
+        elif hasattr(engine, "close"):
             engine.close()
+        from .export import save_session
+
+        saved = save_session(transcript)
         print("\n" + engine.stats.summary())
+        if saved:
+            print(f"session exported: {saved} (captions.srt, captions.vtt, transcript.txt)")
     return 0
 
 

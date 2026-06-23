@@ -36,6 +36,7 @@ class Hyp:
     raw: str
     norm: str
     end: float  # seconds from buffer start
+    start: float = 0.0
 
 
 @dataclass
@@ -43,6 +44,8 @@ class Commit:
     text: str
     latency: float  # seconds from audio playback to commit
     language: str | None
+    start: float = 0.0  # session-relative start time of this caption (s)
+    end: float = 0.0  # session-relative end time (s)
 
 
 class StreamingTranscriber:
@@ -82,6 +85,7 @@ class StreamingTranscriber:
         self._new_audio = 0.0  # seconds accumulated since last step
         self._last_commit: Hyp | None = None  # guards against boundary re-emission
         self._word_probs: deque[float] = deque(maxlen=80)  # router's quality signal
+        self._session_t0: float | None = None  # wall time of the session's first sample
 
     @staticmethod
     def _load_model(model_size: str, device: str):
@@ -111,6 +115,7 @@ class StreamingTranscriber:
     def feed(self, block: AudioBlock) -> list[Commit]:
         if self.stats.audio_seconds == 0.0:
             self.stats.started_at = time.monotonic()  # exclude model load time
+            self._session_t0 = block.captured_at
         if self._buffer_start is None:
             self._buffer_start = block.captured_at
         self._buffer = np.concatenate([self._buffer, block.samples])
@@ -166,7 +171,7 @@ class StreamingTranscriber:
         words: list[Hyp] = []
         for seg in segments:
             for w in seg.words or []:
-                words.append(Hyp(raw=w.word, norm=_norm(w.word), end=w.end))
+                words.append(Hyp(raw=w.word, norm=_norm(w.word), end=w.end, start=w.start))
                 if w.probability is not None:
                     self._word_probs.append(w.probability)
         self.stats.transcribe_calls += 1
@@ -204,7 +209,16 @@ class StreamingTranscriber:
             self._last_commit = committed[-1]
             latency = time.monotonic() - (self._buffer_start + self._committed_end)
             self.stats.add_commit(latency, n_words=agreed)
-            commits.append(Commit(text=text, latency=latency, language=self.detected_language))
+            t0 = self._session_t0 if self._session_t0 is not None else self._buffer_start
+            commits.append(
+                Commit(
+                    text=text,
+                    latency=latency,
+                    language=self.detected_language,
+                    start=max(0.0, self._buffer_start + committed[0].start - t0),
+                    end=max(0.0, self._buffer_start + committed[-1].end - t0),
+                )
+            )
 
         self._pending = current[agreed:]
         self.pending_text = "".join(w.raw for w in self._pending).strip()
@@ -229,11 +243,14 @@ class StreamingTranscriber:
         self._buffer_start += cut
         self._committed_end = max(0.0, self._committed_end - cut)
         self._pending = [
-            Hyp(raw=w.raw, norm=w.norm, end=w.end - cut) for w in self._pending if w.end - cut > 0
+            Hyp(raw=w.raw, norm=w.norm, end=w.end - cut, start=w.start - cut)
+            for w in self._pending
+            if w.end - cut > 0
         ]
         if self._last_commit is not None:
             self._last_commit = Hyp(
                 raw=self._last_commit.raw,
                 norm=self._last_commit.norm,
                 end=self._last_commit.end - cut,
+                start=self._last_commit.start - cut,
             )
