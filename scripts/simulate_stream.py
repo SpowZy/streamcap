@@ -60,12 +60,13 @@ def main() -> None:
     start = time.monotonic()
     for i in range(0, len(audio), block_len):
         chunk = audio[i : i + block_len]
+        # the chunk "plays" at its scheduled time regardless of how far the
+        # consumer falls behind — same contract as a live capture callback
+        scheduled = start + i / TARGET_RATE / args.speed
         if args.speed > 0:
-            # absolute-clock pacing: processing time must not delay the stream,
-            # exactly like a live capture thread
             target = start + (i + len(chunk)) / TARGET_RATE / args.speed
             time.sleep(max(0.0, target - time.monotonic()))
-        for commit in t.feed(AudioBlock(samples=chunk, captured_at=time.monotonic() - len(chunk) / TARGET_RATE)):
+        for commit in t.feed(AudioBlock(samples=chunk, captured_at=scheduled)):
             lang = f" [{commit.language}]" if commit.language else ""
             print(f"{commit.text}   ({commit.latency:.2f}s){lang}", flush=True)
 
