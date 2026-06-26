@@ -4,8 +4,11 @@ Single function keys, registered system-wide with no modifier: they work no
 matter which window has focus, and unlike letter keys they never steal
 keystrokes from whatever the user is typing in.
 
-    F9  — show / hide the caption overlay
-    F10 — toggle click-through (mouse passes through the overlay)
+    F7      — cycle pinned language (auto → en → fr → ar)
+    F8      — clear captions and reset the stream
+    F9      — show / hide the caption overlay
+    F10     — toggle click-through (mouse passes through the overlay)
+    Ctrl+F9 — quit (drains, exports the session, exits cleanly)
 """
 
 from __future__ import annotations
@@ -17,7 +20,10 @@ from typing import Callable
 from PySide6.QtCore import QAbstractNativeEventFilter
 
 WM_HOTKEY = 0x0312
+MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
+VK_F7 = 0x76
+VK_F8 = 0x77
 VK_F9 = 0x78
 VK_F10 = 0x79
 

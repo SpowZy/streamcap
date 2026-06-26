@@ -7,6 +7,7 @@ chips for language and display latency. Drag anywhere to move it.
 
 from __future__ import annotations
 
+import html
 import queue
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -34,6 +35,13 @@ class CaptionWorker(QThread):
         self._route = route
         self._running = True
         self.transcriber = None  # the engine, set once loaded (read by the dashboard)
+        self.requests: "queue.Queue[tuple[str, object]]" = queue.Queue()
+        self.transcript: list[dict] = []
+        self._text_acc = ""
+
+    def request(self, kind: str, value=None) -> None:
+        """Thread-safe control from the UI: ('language', code|None) or ('clear', None)."""
+        self.requests.put((kind, value))
 
     def run(self) -> None:
         from .__main__ import build_engine
@@ -41,50 +49,76 @@ class CaptionWorker(QThread):
         from .audio import LoopbackCapture
 
         self.status.emit(f"loading {self._model}…")
-        transcriber = StreamingTranscriber(
-            model_size=self._model, device=self._device, language=self._language
-        )
-        transcriber = build_engine(transcriber, self._route)
-        self.transcriber = transcriber
-        capture = LoopbackCapture()
-        capture.start()
+        try:
+            transcriber = StreamingTranscriber(
+                model_size=self._model, device=self._device, language=self._language
+            )
+            transcriber = build_engine(transcriber, self._route)
+            self.transcriber = transcriber
+            capture = LoopbackCapture()
+            capture.start()
+        except Exception as e:  # noqa: BLE001 - surface instead of a dead overlay
+            self.status.emit(f"error: {e}")
+            return
         self.status.emit(f"{transcriber.device} · listening")
 
-        text = ""
-        transcript: list[dict] = []
         try:
             while self._running:
+                while not self.requests.empty():
+                    kind, value = self.requests.get_nowait()
+                    if kind == "language":
+                        transcriber.set_language(value)
+                        self._text_acc = ""
+                        self.committed.emit("")
+                        self.pending.emit("")
+                        pin = value or "auto"
+                        self.status.emit(f"language: {pin} · {transcriber.device}")
+                    elif kind == "clear":
+                        transcriber.set_language(transcriber.language)
+                        self._text_acc = ""
+                        self.committed.emit("")
+                        self.pending.emit("")
                 try:
                     block = capture.blocks.get(timeout=0.5)
                 except queue.Empty:
                     continue
                 for commit in transcriber.feed(block):
-                    text = (text + " " + commit.text).strip()[-MAX_CHARS:]
-                    transcript.append(
+                    acc = (self._text_acc + " " + commit.text).strip()
+                    if len(acc) > MAX_CHARS:
+                        acc = acc[-MAX_CHARS:]
+                        cut = acc.find(" ")  # don't open on half a word
+                        if 0 <= cut < 40:
+                            acc = acc[cut + 1 :]
+                    self._text_acc = acc
+                    self.transcript.append(
                         {"start": commit.start, "end": commit.end, "text": commit.text}
                     )
-                    self.committed.emit(text)
+                    self.committed.emit(self._text_acc)
                     lang = commit.language or "…"
                     d50 = transcriber.stats._pct(transcriber.stats.display_latencies, 50)
-                    latency = f"{d50:.2f}s" if d50 else "…"
+                    latency = f"{d50:.2f}s" if d50 is not None else "…"
                     self.status.emit(f"{lang} · {latency} · {transcriber.device}")
                 self.pending.emit(transcriber.pending_text)
+        except Exception as e:  # noqa: BLE001 - died mid-session: say so on the chip
+            self.status.emit(f"error: {e}")
         finally:
             capture.stop()
             if hasattr(transcriber, "drain"):
                 for commit in transcriber.drain():
-                    transcript.append(
+                    self.transcript.append(
                         {"start": commit.start, "end": commit.end, "text": commit.text}
                     )
             elif hasattr(transcriber, "close"):
                 transcriber.close()
             from .export import save_session
 
-            save_session(transcript)
+            save_session(self.transcript)
 
     def stop(self) -> None:
+        """Signal the loop to exit and wait for drain + session export."""
         self._running = False
-        self.wait(2000)
+        if self.isRunning():
+            self.wait(10_000)
 
 
 class Overlay(QWidget):
@@ -154,10 +188,14 @@ class Overlay(QWidget):
     # -- captions ---------------------------------------------------------
 
     def _render(self) -> None:
+        # captions are untrusted text going into a RichText label — escape it
+        committed = html.escape(self._committed)
         pending = (
-            f' <span style="color: {ACCENT_SOFT};">{self._pending}</span>' if self._pending else ""
+            f' <span style="color: {ACCENT_SOFT};">{html.escape(self._pending)}</span>'
+            if self._pending
+            else ""
         )
-        self._text.setText(f"{self._committed}{pending}")
+        self._text.setText(f"{committed}{pending}")
 
     def _on_committed(self, text: str) -> None:
         self._committed = text
@@ -180,9 +218,22 @@ class Overlay(QWidget):
     def mouseReleaseEvent(self, e) -> None:
         self._drag_offset = None
 
+    def keyPressEvent(self, e) -> None:
+        if e.key() == Qt.Key_C and e.modifiers() & Qt.ControlModifier:
+            full = "\n".join(entry["text"] for entry in self._worker.transcript)
+            QApplication.clipboard().setText(full or self._committed)
+        elif e.key() == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(e)
+
     def closeEvent(self, e) -> None:
+        # hide first so quitting feels instant, then let the worker drain the
+        # cloud stream and write the session export before the process ends
+        self.hide()
         self._worker.stop()
         e.accept()
+        QApplication.quit()
 
 
 def run_overlay(
@@ -199,18 +250,34 @@ def run_overlay(
     overlay = Overlay(model, device, language, route=route)
     overlay.show()
 
-    from .hotkeys import VK_F9, VK_F10, GlobalHotkeys
+    from .hotkeys import MOD_CONTROL, VK_F7, VK_F8, VK_F9, VK_F10, GlobalHotkeys
 
     hotkeys = GlobalHotkeys()
     app.installNativeEventFilter(hotkeys)
-    hotkeys.register(VK_F9, lambda: overlay.setVisible(not overlay.isVisible()))
+
+    languages = [None, "en", "fr", "ar"]
+    lang_index = {"i": languages.index(language) if language in languages else 0}
+
+    def cycle_language() -> None:
+        lang_index["i"] = (lang_index["i"] + 1) % len(languages)
+        overlay._worker.request("language", languages[lang_index["i"]])
 
     def toggle_click_through() -> None:
         on = not bool(overlay.windowFlags() & Qt.WindowTransparentForInput)
         overlay.setWindowFlag(Qt.WindowTransparentForInput, on)
         overlay.show()
 
-    hotkeys.register(VK_F10, toggle_click_through)
+    bindings = [
+        (VK_F7, 0, "F7", cycle_language),
+        (VK_F8, 0, "F8", lambda: overlay._worker.request("clear")),
+        (VK_F9, 0, "F9", lambda: overlay.setVisible(not overlay.isVisible())),
+        (VK_F10, 0, "F10", toggle_click_through),
+        # quit must work even when the overlay is hidden or click-through
+        (VK_F9, MOD_CONTROL, "Ctrl+F9", overlay.close),
+    ]
+    for vk, mods, name, action in bindings:
+        if not hotkeys.register(vk, action, modifiers=mods):
+            print(f"warning: global hotkey {name} unavailable (in use by another app)")
     app.aboutToQuit.connect(hotkeys.unregister_all)
 
     if dashboard:
@@ -231,7 +298,8 @@ def run_overlay(
     if duration:
         from PySide6.QtCore import QTimer
 
-        QTimer.singleShot(int(duration * 1000), app.quit)
+        # close (not quit): the worker drains and exports before the app exits
+        QTimer.singleShot(int(duration * 1000), overlay.close)
     code = app.exec()
-    overlay._worker.stop()
+    overlay._worker.stop()  # no-op if closeEvent already ran
     return code

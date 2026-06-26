@@ -41,6 +41,8 @@ def save_session(transcript: list[dict], directory: str = "sessions") -> Path | 
         return None
     import time
 
+    # cloud drain can append out of order relative to local commits
+    transcript = sorted(transcript, key=lambda e: (e["start"], e["end"]))
     out = Path(directory) / time.strftime("%Y-%m-%d_%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
     write_srt(transcript, out / "captions.srt")
