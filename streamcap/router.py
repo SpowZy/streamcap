@@ -43,6 +43,7 @@ class HybridRouter:
         self._api_key = api_key
         self._cloud: CloudStream | None = None
         self._cloud_since: float | None = None
+        self._cloud_retry_at = 0.0  # backoff after a failed cloud session
         self.active = "cloud" if mode == "cloud" else "local"
         if self.active == "cloud":
             self._open_cloud()
@@ -73,6 +74,11 @@ class HybridRouter:
     def compute_type(self) -> str:
         return self.local.compute_type
 
+    def set_language(self, language: str | None) -> None:
+        if self.active == "cloud":
+            self._fall_back_to_local(reason="language change")
+        self.local.set_language(language)
+
     # -- routing ------------------------------------------------------------
 
     def feed(self, block: AudioBlock) -> list[Commit]:
@@ -83,7 +89,7 @@ class HybridRouter:
         return self._feed_cloud(block)
 
     def _maybe_fail_over(self) -> None:
-        if self.mode != "auto":
+        if self.mode != "auto" or time.monotonic() < self._cloud_retry_at:
             return
         confidence = self.local.rolling_confidence
         if (
@@ -136,6 +142,10 @@ class HybridRouter:
 
     def _fall_back_to_local(self, reason: str) -> None:
         if self._cloud is not None:
+            if self._cloud.error:
+                # bad key, network down, quota — don't hammer the endpoint on
+                # every confidence dip; local keeps captioning meanwhile
+                self._cloud_retry_at = time.monotonic() + 60.0
             self._cloud.close()
             self._cloud = None
         self._cloud_since = None

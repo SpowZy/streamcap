@@ -68,15 +68,15 @@ class CloudStream:
 
     def send(self, block: AudioBlock) -> None:
         pcm = (np.clip(block.samples, -1, 1) * 32767).astype(np.int16).tobytes()
+        try:
+            self._send_q.put_nowait(pcm)
+        except queue.Full:
+            return  # dropped chunk: keep it out of the billing/latency timeline
         seconds = len(block.samples) / TARGET_RATE
         self._sent_seconds += seconds
         self._timeline.append((self._sent_seconds, block.captured_at + seconds))
         if len(self._timeline) > 2048:
             del self._timeline[:1024]
-        try:
-            self._send_q.put_nowait(pcm)
-        except queue.Full:
-            pass
 
     @property
     def sent_seconds(self) -> float:
