@@ -127,7 +127,10 @@ def main() -> None:
     print("|---|---|---|---|---|")
     for clip, backend, w, rtf, cost in rows:
         print(f"| {clip} | {backend} | {w:.1%} | {rtf:.2f} | ${cost:.3f} |")
-    print(f"\ncloud reference: AssemblyAI universal-3 pro streaming ≈ ${ASSEMBLYAI_STREAMING_PER_HOUR:.2f}/hr")
+    print(
+        f"\ncloud reference: AssemblyAI streaming $0.15/hr (Universal-Streaming) to "
+        f"${ASSEMBLYAI_STREAMING_PER_HOUR:.2f}/hr (Universal-3 Pro)"
+    )
 
 
 if __name__ == "__main__":
