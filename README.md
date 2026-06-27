@@ -6,7 +6,7 @@ Point it at nothing: it captures system audio straight from the sound card (WASA
 
 ## Why local-first
 
-Cloud streaming STT costs $0.45–0.46 per audio-hour at list price (AssemblyAI Universal-3 Pro, Deepgram Nova-3, July 2026). A captioning subscriber who uses 3 hours a day burns ~90 audio-hours a month — roughly **$41 of inference against a ~$25 subscription**. That unit-economics squeeze is why consumer captioning products cap daily usage and require an internet connection.
+Cloud streaming STT lists at **$0.15–0.46 per audio-hour** depending on tier (AssemblyAI Universal-Streaming $0.15/hr; AssemblyAI Universal-3 Pro $0.45/hr; Deepgram Nova-3 $0.462/hr — July 2026). A captioning subscriber who uses 3 hours a day burns ~90 audio-hours a month: **$13.50–41 of raw STT inference against a ~$25 subscription**, before LLM summarization, payment fees and backend infra. And a *free-tier* user at 1 hour a day still costs $4.50–14/month — pure burn that scales with signups. That unit-economics squeeze is why consumer captioning products cap daily usage and require an internet connection.
 
 Running inference on the user's own machine inverts the model:
 
@@ -27,13 +27,20 @@ Play anything. Captions appear in the overlay; metrics stream to `http://127.0.0
 
 | Control | Action |
 |---|---|
-| `F9` | show / hide the overlay (global hotkey) |
+| `F7` | cycle pinned language: auto → en → fr → ar (global hotkey) |
+| `F8` | clear captions and reset the stream |
+| `F9` | show / hide the overlay |
 | `F10` | toggle click-through |
+| `Ctrl+F9` | quit — drains, exports the session, exits (works even hidden / click-through) |
+| `Esc` (overlay focused) | quit |
+| `Ctrl+C` (overlay focused) | copy the full session transcript |
 | `Ctrl+C` (console mode) | stop and print session stats |
 
 Useful flags: `--model tiny|base|small|medium` · `--language fr` (default auto-detect with lock) · `--route local|cloud|auto` · `--dashboard` · `--duration 60`. Sessions export automatically to `sessions/<timestamp>/` as SRT, VTT and plain text.
 
 The cloud leg needs a `DEEPGRAM_API_KEY` (env var or `local/.env`); without one, streamcap runs fully local.
+
+The streaming core (agreement, endpointing, gap resync, language locking/audit, routing, export) is covered by a deterministic test suite — `pip install pytest`, then `.venv\Scripts\python -m pytest`. Deterministic replay of any clip: `python scripts/simulate_stream.py local/test_en.wav --speed 1.0`.
 
 ## How it works
 
@@ -62,20 +69,25 @@ Reproduce with `python scripts/eval_wer.py --dir <folder of (clip.wav, clip.txt)
 
 | clip | backend | WER | RTF | $/audio-hr |
 |---|---|---|---|---|
-| test_en | tiny · cpu/int8 | 38.8% | 0.04 | $0.000 |
-| test_en | base · cpu/int8 | 16.3% | 0.06 | $0.000 |
-| test_en | small · cpu/int8 | **4.1%** | 0.18 | $0.000 |
-| test_en | small · cuda/fp16 | **4.1%** | 0.12 | $0.000 |
-| test_en | deepgram nova-3 | 8.2% | 0.09 | $0.462 |
-| test_fr | small · cpu/int8 | 8.5% | 0.21 | $0.000 |
-| test_fr | small · cuda/fp16 | 6.4% | 0.05 | $0.000 |
-| test_fr | deepgram nova-3 | **2.1%** | 0.11 | $0.462 |
+| test_en | tiny · cpu/int8 | 0.0% | 0.04 | $0.000 |
+| test_en | base · cpu/int8 | 0.0% | 0.11 | $0.000 |
+| test_en | small · cpu/int8 | **0.0%** | 0.20 | $0.000 |
+| test_en | small · cuda/fp16 | **0.0%** | 0.06 | $0.000 |
+| test_en | deepgram nova-3 | 0.0% | 0.08 | $0.462 |
+| test_fr | tiny · cpu/int8 | 25.5% | 0.04 | $0.000 |
+| test_fr | base · cpu/int8 | 10.6% | 0.08 | $0.000 |
+| test_fr | small · cpu/int8 | 8.5% | 0.22 | $0.000 |
+| test_fr | small · cuda/fp16 | 6.4% | 0.06 | $0.000 |
+| test_fr | deepgram nova-3 | **2.1%** | 0.12 | $0.462 |
 
-Synthetic-voice clips, so treat the absolute numbers as indicative — the point is the shape: local `small` is competitive with (sometimes better than) the cloud at zero cost and holds real-time on CPU alone, and where the cloud genuinely wins (French here), the router is exactly the mechanism that buys that quality only when needed.
+Synthetic-voice clips (clean TTS — that is why English saturates at 0%), so treat the absolute numbers as indicative — the point is the shape: local `small` matches the cloud on easy audio at zero cost and holds real-time on CPU alone, and where the cloud genuinely wins (French here), the router is exactly the mechanism that buys that quality only when needed.
 
 ## Design notes
 
-- **Language lock.** Whisper's per-window language detection flaps on short buffers and destabilizes hypotheses; streamcap locks the language once detected confidently and unlocks after a long silence, so a session can follow an English video into a French one.
+- **Endpoint finalization.** When the input goes quiet, no further audio can refine the pending hypothesis — so it is promoted to final text instead of waiting for (or losing) a second agreement pass. Decoding then stops entirely until speech returns: silence is never re-decoded, never hallucinated over, and never billed.
+- **Wall-clock resync.** Paused videos, source switches and buffer overflows leave holes in wall time. The pipeline detects the discontinuity, finalizes the tail, and resyncs its clock — otherwise a 2-minute pause would read as 120 s of phantom latency on every commit after it.
+- **Language lock + posterior audit.** Whisper's per-window language detection flaps on short buffers and destabilizes hypotheses; streamcap locks the language once two consecutive ≥ 3 s windows agree. The subtle failure is the reverse: after a mid-stream language switch, Whisper pinned to the old language *covertly translates* the new one with high token confidence — so the encoder's language posterior is audited every ~3 s and breaks a stale lock in seconds, keeping the buffered audio so nothing is lost. A session follows an English video straight into a French one with a one-word transition.
+- **Adaptive decode cadence.** Decode cost varies 3–4× with GPU thermals and contention; a fixed cadence would fall behind real time and drop audio. The step stretches with an EMA of decode time, so latency degrades gracefully instead of the pipeline collapsing — same session measured at RTF 0.19 cold and 0.45 throttled, captions intact.
 - **VAD off by default, measured.** `vad_filter` costs ~110 ms per decode call (8 s window, GPU); an RMS gate plus hypothesis agreement already suppress silence hallucinations. The flag exists for noisy environments.
 - **Silence is never billed.** The same gate applies to the cloud leg — 21 s of audio in testing produced 19 s of billed stream.
 - **Boundary dedup.** Word timings drift between decodes; a committed word reappearing just past the commit boundary is dropped instead of stuttering.
