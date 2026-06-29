@@ -443,6 +443,19 @@ def test_router_never_bills_silence(router_env):
     assert r.stats.cloud_seconds == billed_before
 
 
+def test_router_exposes_full_transcriber_surface(router_env):
+    """The overlay's F8/F7 handlers read these off whichever engine they get;
+    a missing passthrough kills the caption worker mid-session."""
+    r, local = router_env
+    assert r.language is None
+    r.set_language("fr")  # what F8 (clear) does with the current language
+    assert r.language == "fr"
+    assert local.language == "fr"
+    assert r.detected_language == "fr"
+    assert isinstance(r.pending_text, str)
+    assert r.compute_type == local.compute_type
+
+
 def test_router_probes_back_to_local(router_env):
     r, local = router_env
     local._word_probs.extend([0.30] * 40)
