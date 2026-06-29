@@ -32,8 +32,8 @@ Play anything. Captions appear in the overlay; metrics stream to `http://127.0.0
 | `F9` | show / hide the overlay |
 | `F10` | toggle click-through |
 | `Ctrl+F9` | quit — drains, exports the session, exits (works even hidden / click-through) |
-| `Esc` (overlay focused) | quit |
-| `Ctrl+C` (overlay focused) | copy the full session transcript |
+| `Esc` (after clicking the overlay) | quit |
+| `Ctrl+C` (after clicking the overlay) | copy the full session transcript |
 | `Ctrl+C` (console mode) | stop and print session stats |
 
 Useful flags: `--model tiny|base|small|medium` · `--language fr` (default auto-detect with lock) · `--route local|cloud|auto` · `--dashboard` · `--duration 60`. Sessions export automatically to `sessions/<timestamp>/` as SRT, VTT and plain text.

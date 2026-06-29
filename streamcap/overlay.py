@@ -205,11 +205,38 @@ class Overlay(QWidget):
         self._pending = text
         self._render()
 
+    # -- click-through ------------------------------------------------------
+
+    def toggle_click_through(self) -> bool:
+        """Flip WS_EX_TRANSPARENT on the native window.
+
+        Qt's WindowTransparentForInput flag recreates the native window
+        (flicker, lost position, dropped topmost); flipping the Win32
+        extended style in place does not touch the window at all.
+        """
+        import ctypes
+
+        GWL_EXSTYLE = -20
+        WS_EX_TRANSPARENT = 0x20
+        WS_EX_LAYERED = 0x80000
+        hwnd = int(self.winId())
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        on = not (style & WS_EX_TRANSPARENT)
+        if on:
+            style |= WS_EX_LAYERED | WS_EX_TRANSPARENT
+        else:
+            style &= ~WS_EX_TRANSPARENT
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+        self._chip.setText("click-through ON · F10 to disable" if on else "click-through off")
+        return on
+
     # -- dragging ---------------------------------------------------------
 
     def mousePressEvent(self, e) -> None:
         if e.button() == Qt.LeftButton:
             self._drag_offset = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self.activateWindow()  # so Esc / Ctrl+C work after a click
+            self.setFocus()
 
     def mouseMoveEvent(self, e) -> None:
         if self._drag_offset is not None:
@@ -262,16 +289,11 @@ def run_overlay(
         lang_index["i"] = (lang_index["i"] + 1) % len(languages)
         overlay._worker.request("language", languages[lang_index["i"]])
 
-    def toggle_click_through() -> None:
-        on = not bool(overlay.windowFlags() & Qt.WindowTransparentForInput)
-        overlay.setWindowFlag(Qt.WindowTransparentForInput, on)
-        overlay.show()
-
     bindings = [
         (VK_F7, 0, "F7", cycle_language),
         (VK_F8, 0, "F8", lambda: overlay._worker.request("clear")),
         (VK_F9, 0, "F9", lambda: overlay.setVisible(not overlay.isVisible())),
-        (VK_F10, 0, "F10", toggle_click_through),
+        (VK_F10, 0, "F10", overlay.toggle_click_through),
         # quit must work even when the overlay is hidden or click-through
         (VK_F9, MOD_CONTROL, "Ctrl+F9", overlay.close),
     ]

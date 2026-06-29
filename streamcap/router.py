@@ -55,6 +55,10 @@ class HybridRouter:
         return self.local.stats
 
     @property
+    def language(self) -> str | None:
+        return self.local.language
+
+    @property
     def detected_language(self):
         return self.local.detected_language
 
