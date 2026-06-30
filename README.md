@@ -1,5 +1,7 @@
 # streamcap
 
+![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-4F46E5) ![python](https://img.shields.io/badge/python-3.11%2B-4F46E5) ![tests](https://img.shields.io/badge/tests-21%20passing-1baf7a) ![license](https://img.shields.io/badge/license-proprietary-52514e)
+
 Real-time captions for anything your computer plays — running **local-first**, with a cost-aware cloud fallback and a live metrics dashboard that shows the receipts.
 
 Point it at nothing: it captures system audio straight from the sound card (WASAPI loopback, no virtual cable), transcribes on-device with a streaming Whisper pipeline, and paints captions in an always-on-top overlay in about half a second. When local confidence degrades — heavy accents, crosstalk, noise — it fails over to a cloud STT stream, and fails back as soon as it can. Every second and every cent is measured.
@@ -102,3 +104,7 @@ Synthetic-voice clips (clean TTS — that is why English saturates at 0%), so tr
 ## Limitations & next steps
 
 No speaker diarization yet. The benchmark set is small and synthetic — the harness accepts any `(wav, txt)` pairs, and a Common Voice slice (en/fr/ar) is the obvious next fixture. A WhisperRT-style causal encoder would cut re-decode cost and push commit latency below the second. Packaging (installer, tray app, auto-start) is deliberately out of scope for a prototype.
+
+## License
+
+© 2026 SpowZy. All rights reserved — see [LICENSE](LICENSE).
