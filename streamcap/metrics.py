@@ -1,7 +1,7 @@
 """Session metrics: end-to-end caption latency, throughput and inference cost.
 
 The cost baseline is what this session would have cost if every captured
-second had been streamed to a cloud STT API — the architecture of a thin
+second had been streamed to a cloud STT API, the architecture of a thin
 desktop client with no local model. Rate: Deepgram Nova-3 streaming,
 pay-as-you-go, $0.0077/min (verified July 2026).
 """

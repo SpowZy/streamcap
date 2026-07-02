@@ -2,7 +2,7 @@
 
 Policy (the Hybrid LLM / cost-aware routing idea applied to ASR): serve from
 the local model while its rolling word confidence stays healthy; when it
-degrades — heavy accents, crosstalk, noise — fail over to the paid cloud
+degrades (heavy accents, crosstalk, noise), fail over to the paid cloud
 stream so quality never drops. Periodically probe local again so the session
 returns to $0 inference as soon as it can. Silence is never billed: the same
 RMS gate that protects the local model gates what is sent to the cloud.
@@ -147,7 +147,7 @@ class HybridRouter:
     def _fall_back_to_local(self, reason: str) -> None:
         if self._cloud is not None:
             if self._cloud.error:
-                # bad key, network down, quota — don't hammer the endpoint on
+                # bad key, network down, quota: don't hammer the endpoint on
                 # every confidence dip; local keeps captioning meanwhile
                 self._cloud_retry_at = time.monotonic() + 60.0
             self._cloud.close()

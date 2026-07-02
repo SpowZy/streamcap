@@ -19,5 +19,5 @@ def prepare_cuda_dlls() -> None:
             if os.path.isdir(bin_dir):
                 os.add_dll_directory(bin_dir)
                 # ctranslate2 resolves its CUDA deps through the default search
-                # path, which ignores add_dll_directory — PATH is what works.
+                # path, which ignores add_dll_directory; PATH is what works.
                 os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")

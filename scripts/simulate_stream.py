@@ -61,7 +61,7 @@ def main() -> None:
     for i in range(0, len(audio), block_len):
         chunk = audio[i : i + block_len]
         # the chunk "plays" at its scheduled time regardless of how far the
-        # consumer falls behind — same contract as a live capture callback
+        # consumer falls behind, same contract as a live capture callback
         scheduled = start + i / TARGET_RATE / args.speed
         if args.speed > 0:
             target = start + (i + len(chunk)) / TARGET_RATE / args.speed

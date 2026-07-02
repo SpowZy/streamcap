@@ -4,11 +4,11 @@ Single function keys, registered system-wide with no modifier: they work no
 matter which window has focus, and unlike letter keys they never steal
 keystrokes from whatever the user is typing in.
 
-    F7      — cycle pinned language (auto → en → fr → ar)
-    F8      — clear captions and reset the stream
-    F9      — show / hide the caption overlay
-    F10     — toggle click-through (mouse passes through the overlay)
-    Ctrl+F9 — quit (drains, exports the session, exits cleanly)
+    F7       cycle pinned language (auto -> en -> fr -> ar)
+    F8       clear captions and reset the stream
+    F9       show / hide the caption overlay
+    F10      toggle click-through (mouse passes through the overlay)
+    Ctrl+F9  quit (drains, exports the session, exits cleanly)
 """
 
 from __future__ import annotations

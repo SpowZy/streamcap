@@ -81,7 +81,7 @@ def main() -> int:
 
     capture = LoopbackCapture()
     print(f"capturing: {capture.device['name']}")
-    print("play anything — captions below. Ctrl+C to stop.\n")
+    print("play anything, captions below. Ctrl+C to stop.\n")
     capture.start()
 
     import time
