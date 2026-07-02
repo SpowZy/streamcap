@@ -118,7 +118,7 @@ class StreamingTranscriber:
                 if dev == "cuda":
                     prepare_cuda_dlls()
                 model = WhisperModel(model_size, device=dev, compute_type=compute)
-                # transcribe() is lazy — consuming the generator forces CUDA
+                # transcribe() is lazy; consuming the generator forces CUDA
                 # init and the first kernel launch to fail here, not mid-session
                 segments, _ = model.transcribe(np.zeros(TARGET_RATE, dtype=np.float32), beam_size=1)
                 for _ in segments:
@@ -145,7 +145,7 @@ class StreamingTranscriber:
             expected_end = self._buffer_start + len(self._buffer) / TARGET_RATE
             if block.captured_at - expected_end > GAP_RESET_SECONDS:
                 # record=False: this text was captured before a pause we only
-                # learn about now — its promotion delay is not pipeline latency
+                # learn about now; its promotion delay is not pipeline latency
                 commits += self._flush_tail(record=False)
                 self._drop_buffer()
                 self._unlock_language()  # a source switch often means a new language
@@ -157,7 +157,7 @@ class StreamingTranscriber:
 
         # Endpoint: input has gone quiet, so no further audio can improve the
         # pending hypothesis. Promote it to final (instead of letting it be
-        # trimmed away) and decode nothing until speech returns — silence is
+        # trimmed away) and decode nothing until speech returns; silence is
         # never re-decoded, and never hallucinated over. Short pauses keep
         # the audio window (language detection and the wall-clock map need
         # the context); only a long silence resets it and unlocks the
@@ -274,7 +274,7 @@ class StreamingTranscriber:
         final answer, and waiting for a second agreement pass would either
         stall or silently eat the end of the sentence. `record=False` keeps
         after-the-fact promotions (a resumed pause) out of the latency
-        percentiles — that delay measures the pause, not the pipeline.
+        percentiles; that delay measures the pause, not the pipeline.
         """
         if self._buffer_start is None:
             self._pending = []
@@ -345,7 +345,7 @@ class StreamingTranscriber:
         buffered = len(self._buffer) / TARGET_RATE
         if self._locked_language is None and info.language_probability and buffered >= 3.0:
             # music beds and jingles fool short-window detection (Spanish on
-            # an intro sting is a classic) — require a window of at least 3 s
+            # an intro sting is a classic), so require a window of at least 3 s
             # AND two consecutive windows agreeing before locking
             if info.language_probability > 0.8:
                 if info.language == self._lang_candidate:
@@ -402,7 +402,7 @@ class StreamingTranscriber:
 
         # A wrong-language lock sometimes shows up as a confidence collapse
         # (noise, crosstalk). Re-detect before anything more expensive gets a
-        # say — this must run ahead of the router.
+        # say; this must run ahead of the router.
         confidence = self.rolling_confidence
         if (
             self.language is None
@@ -416,7 +416,7 @@ class StreamingTranscriber:
         # But a language switch usually does NOT collapse token confidence:
         # Whisper forced to the old language covertly *translates* the new
         # one, fluently and confidently. The encoder's language posterior is
-        # the signal that can't be fooled that way — audit it periodically.
+        # the signal that can't be fooled that way, so audit it periodically.
         if self._audit_language():
             return commits
 
@@ -457,7 +457,7 @@ class StreamingTranscriber:
             if probability >= 0.95 or self._lang_disagreements >= 2:
                 # unlock IN PLACE: the buffered foreign-language audio is both
                 # the detection context for the re-lock and speech the user
-                # hasn't seen committed yet — dropping it would eat a phrase
+                # hasn't seen committed yet; dropping it would eat a phrase
                 self._locked_language = None
                 self._lang_candidate = None
                 self._lang_disagreements = 0

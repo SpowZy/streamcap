@@ -2,7 +2,7 @@
 
 Captures whatever the machine is currently playing (meetings, videos, calls)
 without a virtual audio cable, then downmixes to mono and resamples to
-16 kHz float32 — the input format Whisper models expect.
+16 kHz float32, the input format Whisper models expect.
 """
 
 from __future__ import annotations

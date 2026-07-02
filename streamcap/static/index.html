@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>streamcap — live metrics</title>
+<title>streamcap · live metrics</title>
 <style>
   :root {
     --plane: #0D0D12;
@@ -79,29 +79,29 @@
   <div class="grid">
     <div class="card tile hero">
       <div class="label">Display latency · p50</div>
-      <div class="value" id="display_p50">—</div>
+      <div class="value" id="display_p50">…</div>
       <div class="note">spoken word → on screen</div>
     </div>
     <div class="card tile">
       <div class="label">Display latency · p95</div>
-      <div class="value" id="display_p95">—</div>
+      <div class="value" id="display_p95">…</div>
       <div class="note">&nbsp;</div>
     </div>
     <div class="card tile">
       <div class="label">Committed latency · p50</div>
-      <div class="value" id="commit_p50">—</div>
+      <div class="value" id="commit_p50">…</div>
       <div class="note">text finalized, no rewrites</div>
     </div>
     <div class="card tile">
       <div class="label">ASR load · RTF</div>
-      <div class="value" id="rtf">—</div>
+      <div class="value" id="rtf">…</div>
       <div class="note">compute ÷ audio time, &lt;1 keeps up</div>
     </div>
   </div>
 
   <div class="row2">
     <div class="card spark">
-      <h2>Display latency per commit — last 150</h2>
+      <h2>Display latency per commit, last 150</h2>
       <svg id="chart" viewBox="0 0 640 150" preserveAspectRatio="none"></svg>
       <div class="tooltip" id="tip"></div>
       <details>
@@ -139,12 +139,12 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const fmtS = (v) => v == null ? "—" : v.toFixed(2) + "s";
+  const fmtS = (v) => v == null ? "…" : v.toFixed(2) + "s";
   const fmt$ = (v) => "$" + (v ?? 0).toFixed(3);
 
   function tiles(d) {
     for (const k of ["display_p50", "display_p95", "commit_p50"]) $(k).textContent = fmtS(d[k]);
-    $("rtf").textContent = d.rtf == null ? "—" : d.rtf.toFixed(2);
+    $("rtf").textContent = d.rtf == null ? "…" : d.rtf.toFixed(2);
     $("local_pct").textContent = d.local_pct.toFixed(0) + "%";
     $("cloud_pct").textContent = (100 - d.local_pct).toFixed(0) + "%";
     $("cloud_cost").textContent = fmt$(d.cloud_cost);

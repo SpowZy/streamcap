@@ -243,7 +243,7 @@ def test_long_silence_unlocks_language():
 
 def test_language_audit_breaks_covert_translation_lock():
     """A language switch with no silence gap does not collapse token
-    confidence (Whisper just translates, fluently) — the encoder posterior
+    confidence (Whisper just translates, fluently); the encoder posterior
     audit must break the stale lock anyway."""
     t = make_transcriber()
     t0 = time.monotonic() - 60.0
@@ -278,7 +278,7 @@ def test_forced_trim_keeps_shifted_pending():
 
 
 def test_repeated_word_across_utterances_not_deduped():
-    """'Yes.' pause 'Yes.' — the second one must survive the boundary dedup."""
+    """'Yes.' pause 'Yes.': the second one must survive the boundary dedup."""
     t = make_transcriber()
     t0 = time.monotonic() - 20.0
     commits = feed_all(t, blocks(0.5, t0))

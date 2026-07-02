@@ -188,7 +188,7 @@ class Overlay(QWidget):
     # -- captions ---------------------------------------------------------
 
     def _render(self) -> None:
-        # captions are untrusted text going into a RichText label — escape it
+        # captions are untrusted text going into a RichText label, so escape it
         committed = html.escape(self._committed)
         pending = (
             f' <span style="color: {ACCENT_SOFT};">{html.escape(self._pending)}</span>'

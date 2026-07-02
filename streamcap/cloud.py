@@ -1,4 +1,4 @@
-"""Deepgram streaming client — the paid fallback leg of the hybrid router.
+"""Deepgram streaming client: the paid fallback leg of the hybrid router.
 
 Runs a websocket session on its own asyncio thread. Only voiced audio is
 sent (the router applies the same RMS gate as the local path), so cloud
